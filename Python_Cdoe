@@ -1,0 +1,315 @@
+def quantiles(df, variable=None):
+    try:
+        i = 0
+        pd.options.display.float_format = '{:20,.5f}'.format
+        col = ['Numerical Variables','0% Min','1%','5%','10%','25% Q1','50% Median','75% Q3','90%','95%','99%','99.1 %' ,'99.2 %','99.3 %','99.4 %','99.5 %','99.6 %','99.7 %','99.8 %','99.9 %','99.91 %','99.95 %','99.99 %','100% Max','Avg','Std dev','Var','Mode','Range','IQR','Infinity Values','Infinty Values (%)','Distinct Count', 'Null Values', 'Null Values (%)']
+        quantile = pd.DataFrame(columns = col)
+        if(variable==None):
+            num_col_list=['int','float']
+            numerical_columns = list(df.select_dtypes(include=num_col_list).columns)
+                    #numerical_columns = [var for var in df if df[var].dtypes != 'O']
+        else:
+                    numerical_columns=variable
+        
+        for var in numerical_columns:
+            df[var]=df[var].astype(float)
+            quantile.loc[i] = [var,
+                                   np.round(df[var].min(),6),
+                                   np.round(np.percentile(df[var].dropna(), 1), 6),
+                                   np.round(np.percentile(df[var].dropna(), 5), 6),
+                                   np.round(np.percentile(df[var].dropna(), 10), 6),
+                                   np.round(np.percentile(df[var].dropna(), 25), 6),
+                                   np.percentile(df[var].dropna(), 50),
+                                   np.round(np.percentile(df[var].dropna(), 75), 6),
+                                   np.round(np.percentile(df[var].dropna(), 90), 6),
+                                   np.round(np.percentile(df[var].dropna(), 95), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.1), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.2), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.3), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.4), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.5), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.6), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.7), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.8), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.9), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.91), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.95), 6),
+                                   np.round(np.percentile(df[var].dropna(), 99.99), 6),
+                                   np.round(df[var].max(),6),
+                                   df[var].mean(),
+                                   np.round(np.std(df[var]),2),
+                                   np.round(np.var(df[var]),2),
+                                   np.round(df[var].mode()[0],2),
+                                   np.round(np.subtract(*np.percentile(df[var].dropna(), [100,0])),2),
+                                   np.round(np.subtract(*np.percentile(df[var].dropna(), [75,25])),2),
+                                   np.isinf(df[var]).values.sum(),
+                                   np.round(np.isinf(df[var]).values.sum()/df.shape[0],4) * 100,
+                                   df[var].nunique(),
+                                   df[var].isnull().sum(),
+                                   np.round(df[var].isnull().sum()/df.shape[0],4) * 100
+                                  ]
+            i+=1
+        
+        return quantile
+    except Exception as e:
+        return e
+
+def optimum_thr(model,X_test,y_test):
+    y_pred_prob = model.predict_proba(X_test)[:, 1]
+    fpr,tpr,threshold = roc_curve(y_test, y_pred_prob)
+    score = tpr - fpr
+    opt_threshold = sorted(zip(score,threshold))[-1][1]
+    
+    return opt_threshold
+
+def optimum_thr_log(model,X_test,y_test):
+    y_pred_prob = model.predict(X_test)
+    fpr,tpr,threshold = roc_curve(y_test, y_pred_prob)
+    score = tpr - fpr
+    opt_threshold = sorted(zip(score,threshold))[-1][1]
+    
+    return opt_threshold
+
+
+def model_validation(model,df, target_var,memberedenuid,opt_threshold):
+
+    X = df.drop([target_var,memberedenuid], axis = 1)
+    Y = df[[target_var]]
+    
+    print('X',X.shape)
+    
+    print('Ý',Y.shape)
+    
+    #opt_threshold = optimum_thr(model,X,Y)
+    
+    y_test_pred_sm = model.predict_proba(X)[:, 1]
+    Y['y_pred_sm'] = y_test_pred_sm
+    
+    Y['y_pred'] = np.where(y_test_pred_sm > opt_threshold, 1, 0)
+    
+    print('Opt Thr : ', opt_threshold)
+    print('AUC SCORE',roc_auc_score(Y[target_var],Y['y_pred_sm']))
+    print(confusion_matrix(Y[target_var],Y['y_pred']))
+    print('Avg Prob',np.mean(Y['y_pred_sm']))
+    
+    ax_scores=pd.DataFrame()
+
+    ax_scores['memberedenuid']=df[memberedenuid]
+    ax_scores['scored']=Y['y_pred_sm']
+    ax_scores[target_var]=df[target_var]
+    
+
+    ax_scores['call_score_old_precentile'] = pd.qcut(ax_scores['scored'].rank(method='first'), 10,labels=list(range(1,11)))
+    mh_wp_l_cp_result = ax_scores.groupby(['call_score_old_precentile']).agg({target_var : ["count","sum"]}).reset_index()
+
+    mh_wp_l_cp_result['reached_indicator (%)'] = (mh_wp_l_cp_result[target_var]['sum']/mh_wp_l_cp_result[target_var]['count']) * 100
+
+    display(mh_wp_l_cp_result )
+    display(quantiles(ax_scores,['scored']))
+
+    return Y
+        
+
+    
+
+def model_validation_log(model,df, target_var,memberedenuid):
+
+    X = df.drop([target_var,memberedenuid], axis = 1)
+    Y = df[[target_var]]
+    
+    print('X',X.shape)
+    X_sm = sm.add_constant(X)
+    print('X_sm',X_sm.shape)
+    print('Ý',Y.shape)
+    y_test_pred_sm = model.predict(X_sm)
+    Y['y_pred_sm'] = y_test_pred_sm
+    Y['y_pred'] = np.where(y_test_pred_sm > opt_thr_sm, 1, 0)
+    
+    print('Opt Thr : ', opt_thr_sm)
+    print('AUC SCORE',roc_auc_score(Y[target_var],Y['y_pred_sm']))
+    print(confusion_matrix(Y[target_var],Y['y_pred']))
+    print('Avg Prob',np.mean(Y['y_pred_sm']))
+    
+    ax_scores=pd.DataFrame()
+
+    ax_scores['memberedenuid']=df[memberedenuid]
+    ax_scores['scored']=Y['y_pred_sm']
+    ax_scores[target_var]=df[target_var]
+    
+
+    ax_scores['call_score_old_precentile'] = pd.qcut(ax_scores['scored'].rank(method='first'), 10,labels=list(range(1,11)))
+    mh_wp_l_cp_result = ax_scores.groupby(['call_score_old_precentile']).agg({target_var : ["count","sum"]}).reset_index()
+
+    mh_wp_l_cp_result['reached_indicator (%)'] = (mh_wp_l_cp_result[target_var]['sum']/mh_wp_l_cp_result[target_var]['count']) * 100
+
+    display(mh_wp_l_cp_result )
+    display(quantiles(ax_scores,['scored']))
+
+
+    
+
+    return X_sm, Y
+
+def model_validation_log_v1(model,df, target_var,memberedenuid):
+
+    X = df.drop([target_var,memberedenuid], axis = 1)
+    Y = df[[target_var]]
+    
+    print('X',X.shape)
+    X_sm = sm.add_constant(X)
+    print('X_sm',X_sm.shape)
+    print('Ý',Y.shape)
+    y_test_pred_sm = model.predict(X_sm)
+    Y['y_pred_sm'] = y_test_pred_sm
+    Y['y_pred'] = np.where(y_test_pred_sm > opt_thr_sm, 1, 0)
+
+
+    print('Opt Thr : ', opt_thr_sm)
+    print('AUC SCORE',roc_auc_score(Y[target_var],Y['y_pred_sm']))
+    print(confusion_matrix(Y[target_var],Y['y_pred']))
+    print('Avg Prob',np.mean(Y['y_pred_sm']))
+
+    return X_sm, Y
+
+X_train_ax_call_wp, y_train_ax_call_wp = model_validation_log(lr_model,train_data, 'flag_reached','memberedenuid')
+
+
+
+import copy
+def predict_prob(df, emr_coeff,target_var):
+ 
+    score_columns = list(emr_coeff.index)
+ 
+    score_columns.remove('const')
+
+    df_1 = copy.copy(df[score_columns])
+   
+    df_1=df_1.astype(float)
+    df_1['score'] = emr_coeff.iloc[0][0]
+    
+    
+    for c in list(emr_coeff.iloc[1:,:].index):
+#         print(emr_coeff.loc[c][0])
+        
+        df_1['score'] += df_1[c] * emr_coeff.loc[c][0]
+#         print(df_1['score'])
+    
+    df_1['predict_prob']=np.exp(df_1['score'])/(np.exp(df_1['score'])+1)
+#     print(df_1['predict_prob'])
+ 
+    df_1['predict_prob'] = df_1['predict_prob']
+    df_1['memberedenuid']=df['memberedenuid']
+    df_1[target_var]=df[target_var]
+#     df_1['riskscore_conc_imp']=df['riskscore_conc_imp']
+    
+    df_1['precentile'] = pd.qcut(df_1['predict_prob'].rank(method='first'),10,labels=list(range(1,11)))
+    mh_wp_l_cp_result = df_1.groupby(['precentile']).agg({target_var : ["count","sum"]}).reset_index()
+    display(df_1.groupby(['precentile']).agg({ "predict_prob": ["mean",np.median,"min","max"]}).reset_index())
+
+    mh_wp_l_cp_result['reached_indicator (%)'] = (mh_wp_l_cp_result[target_var]['sum']/mh_wp_l_cp_result[target_var]['count'])
+#     * 100
+    
+    
+    display(mh_wp_l_cp_result )
+    display(quantiles(df_1,['predict_prob']))
+    print('AUC',roc_auc_score(df_1[target_var],df_1['predict_prob']))
+    
+    return df_1[['memberedenuid','predict_prob',target_var]]
+
+print('---------------------------Ax call wp----------------------')
+ax_call_score_wp = predict_prob(ax_new_mds, ax_call_wp_dec_2024,target_var1)
+# print('---------------------------Ax call cp----------------------')
+ax_call_score_cp = predict_prob(ax_new_mds, ax_call_cp_dec_2024,target_var1)
+
+
+prec_0 = fp_score['con_risk'].min()
+prec_50 = np.percentile(fp_score['con_risk'].dropna(), 50)
+prec_90 = np.percentile(fp_score['con_risk'].dropna(), 90)
+prec_100 = fp_score['con_risk'].max()
+
+
+
+print('Conc Prec 0 : ', prec_0)
+print('Conc Prec 50 : ', prec_50)
+print('Conc Prec 90 : ', prec_90)
+print('Conc Prec 100 : ', prec_100)
+
+
+
+def bucket_creation(df):
+
+    conditions = [(df['con_risk'] >= prec_90), 
+    (df['con_risk'] >= prec_50) & (df['con_risk'] < prec_90),
+    (df['con_risk'] >= prec_0) & (df['con_risk'] < prec_50)]
+
+    choices = ['High','Medium','Low']
+    df['conc_bucket'] = np.select(conditions, choices, default='0')
+
+#     print('High bucket Min : ',df[df['conc_bucket'] == 'High']['con_risk'].min())
+#     print('High bucket Max : ',df[df['conc_bucket'] == 'High']['con_risk'].max())
+#     print('\n')
+#     print('Medium bucket Min : ',df[df['conc_bucket'] == 'Medium']['con_risk'].min())
+#     print('Medium bucket Max : ',df[df['conc_bucket'] == 'Medium']['con_risk'].max())
+#     print('\n')
+#     print('Low bucket Min : ',df[df['conc_bucket'] == 'Low']['con_risk'].min())
+#     print('Low bucket Max : ',df[df['conc_bucket'] == 'Low']['con_risk'].max())
+    
+    return df
+
+def swapping_population(df):
+    
+    df = bucket_creation(df)
+    
+    # Chronic Population
+    df['lm_cp_h_wp'] = np.where(((df['conc_bucket'] == 'Low') | (df['conc_bucket'] == 'Medium')) ,df['call_score_cp'], df['call_score_wp']) # Concurrent Risk Low + Medium = CP
+    df['lh_cp_m_wp'] = np.where(((df['conc_bucket'] == 'Low') | (df['conc_bucket'] == 'High')) ,df['call_score_cp'], df['call_score_wp']) # Concurrent Risk Low + High = CP
+    df['mh_cp_l_wp'] = np.where(((df['conc_bucket'] == 'Medium') | (df['conc_bucket'] == 'High')) ,df['call_score_cp'], df['call_score_wp'] )  # Concurrent Risk medium + High = CP
+
+    # Whole Population
+    df['lm_wp_h_cp'] = np.where(((df['conc_bucket'] == 'Low') | (df['conc_bucket'] == 'Medium')) ,df['call_score_wp'], df['call_score_cp']) # Concurrent Risk Low + Medium = WP
+    df['lh_wp_m_cp'] = np.where(((df['conc_bucket'] == 'Low') | (df['conc_bucket'] == 'High')) ,df['call_score_wp'], df['call_score_cp']) # Concurrent Risk Low + High = WP
+    df['mh_wp_l_cp'] = np.where(((df['conc_bucket'] == 'Medium') | (df['conc_bucket'] == 'High')) ,df['call_score_wp'], df['call_score_cp'] )  # Concurrent Risk medium + High = WP
+    
+    return df
+wp_cp_score_v1 = swapping_population(fp_score)
+display(wp_cp_score_v1.head(5))
+print(wp_cp_score_v1.shape)
+
+
+target_Var='flag_reached'
+wp_cp_score_v1['call_score_old_precentile'] = pd.qcut(wp_cp_score_v1['lm_wp_h_cp'].rank(method='first'), 10,labels=list(range(1,11)))
+mh_wp_l_cp_result = wp_cp_score_v1.groupby(['call_score_old_precentile']).agg({target_Var : ["count","sum"]}).reset_index()
+
+mh_wp_l_cp_result['reached_indicator (%)'] = (mh_wp_l_cp_result[target_Var]['sum']/mh_wp_l_cp_result[target_Var]['count']) * 100
+
+display(mh_wp_l_cp_result )
+# display(quantiles(wp_cp_score_v1[['lh_cp_m_wp']]))
+display(quantiles(wp_cp_score_v1[['lm_wp_h_cp']]))
+print('AUC SCORE',roc_auc_score(wp_cp_score_v1[target_Var],wp_cp_score_v1['lm_wp_h_cp']))
+
+
+def univ_freq_table_1(df, variables):
+    try:
+        i = 0
+        col = ['Numerical Variables','Observation','Distinct Count','Missing Values','Missing Values (%)', 'value 0','value 1', 'Null Values','Average','Prevalence' ]
+        num_overview = pd.DataFrame(columns = col)
+        for var in variables:
+            num_overview.loc[i] = [var,
+                                   df[var].count(),
+                                   df[var].nunique(),
+                                   df[var].isnull().sum(),
+                                   np.round(df[var].isnull().sum()/df.shape[0],4) * 100,                                   
+                                   df[var][df[var].astype(float) == 0.0].count(),                                       
+                                   df[var][df[var].astype(float) == 1.0].count(),
+                                   df[var].isnull().sum(),
+                                   df[var].mean(),
+                                  
+                                   np.round(df[var][df[var].astype(float) == 1.0].count()/df[var].count(),4) 
+                                  ]
+            i+=1
+        return num_overview        
+    except Exception as e:
+        return e
+    
+#univ_freq_table_1(model_data_v1,model_data_v1.columns).to_csv('Freq_Dist_mcd_easi_hp.csv')  
